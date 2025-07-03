@@ -9,6 +9,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import pytz
 import ssl
+import re
 
 app = Flask(__name__)
 
@@ -18,18 +19,20 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 # Active recording processes: {recording_id: {"process": Popen, "filepath": str, "metadata": dict}}
 active_recordings = {}
 
-# Load channels.json to get stream URLs
-with open("channels.json", "r") as f:
-    channels = {c["id"]: c for c in json.load(f)}
+# User scheduled recordings: {recording_id: {"start": datetime, "stop": datetime, "metadata": dict}}
+user_scheduled_recordings = {}
+scheduler_lock = threading.Lock()
 
-# Build reverse lookup: channel number -> channel_id
-number_to_channel_id = {c["number"]: c["id"] for c in channels.values()}
+# Load channels.json to get stream URLs and support lookup by number
+with open("channels.json", "r") as f:
+    channels_list = json.load(f)
+channels = {c["id"]: c for c in channels_list}
+channels_by_number = {c["number"]: c for c in channels_list}
 
 UK_TZ = pytz.timezone("Europe/London")
 EPG_URL = "https://raw.githubusercontent.com/dp247/Freeview-EPG/master/epg.xml"
 
 def safe_filename(s):
-    import re
     return re.sub(r"[^\w\-_. ]", "_", s)
 
 def parse_time(timestr):
@@ -106,7 +109,6 @@ def fetch_epg():
                 "title": title,
                 "desc": desc
             })
-        # Sort programs by start time
         for chan in epg:
             epg[chan].sort(key=lambda x: x["start"])
         return epg
@@ -114,98 +116,71 @@ def fetch_epg():
         print("Error fetching EPG:", e)
         return {}
 
-scheduler_lock = threading.Lock()
-scheduled_recordings = {}  # recording_id: {"start": datetime, "stop": datetime, "metadata": dict}
+def get_channel_by_id_or_number(id_or_number):
+    # Try id first, then number
+    if id_or_number in channels:
+        return channels[id_or_number]
+    if id_or_number in channels_by_number:
+        return channels_by_number[id_or_number]
+    return None
 
 def scheduler_loop():
     while True:
-        epg = fetch_epg()
         now = datetime.datetime.now(UK_TZ)
 
         with scheduler_lock:
-            # Check for programs starting soon (within next 1 min)
-            for chan_id, programs in epg.items():
-                for prog in programs:
-                    rid = f"{chan_id}_{int(prog['start'].timestamp())}"
-                    if rid in scheduled_recordings or rid in active_recordings:
-                        continue  # already scheduled or recording
+            # Start scheduled recordings if their start time is within next 60 seconds and not already recording
+            for rid, info in list(user_scheduled_recordings.items()):
+                if rid in active_recordings:
+                    continue  # already recording
 
-                    # Schedule program if start time is within the next 60 seconds
-                    if 0 <= (prog["start"] - now).total_seconds() < 60:
-                        # Start recording
-                        stream_url = channels[chan_id]["stream"]
-                        metadata = {
-                            "channel": chan_id,
-                            "title": prog["title"],
-                            "description": prog["desc"],
-                            "start": prog["start"].isoformat(),
-                            "stop": prog["stop"].isoformat()
-                        }
-                        start_recording(rid, stream_url, metadata)
-                        scheduled_recordings[rid] = {
-                            "start": prog["start"],
-                            "stop": prog["stop"],
-                            "metadata": metadata
-                        }
-                        print(f"Scheduled and started recording {rid}")
+                start = info["start"]
+                if 0 <= (start - now).total_seconds() < 60:
+                    stream_url = info["metadata"].get("stream_url")
+                    if not stream_url:
+                        print(f"No stream_url for scheduled recording {rid}, skipping")
+                        continue
+                    start_recording(rid, stream_url, info["metadata"])
+                    print(f"Scheduled recording started: {rid}")
 
-            # Stop recordings that have passed stop time
-            to_stop = []
-            for rid, info in list(scheduled_recordings.items()):
-                if now >= info["stop"]:
+            # Stop recordings that have passed their stop time
+            to_remove = []
+            for rid, info in list(user_scheduled_recordings.items()):
+                stop = info["stop"]
+                if now >= stop and rid in active_recordings:
                     stop_recording(rid)
-                    to_stop.append(rid)
-            for rid in to_stop:
-                scheduled_recordings.pop(rid, None)
+                    to_remove.append(rid)
+
+            for rid in to_remove:
+                user_scheduled_recordings.pop(rid, None)
 
         time.sleep(30)
 
 @app.route("/api/recordings/start", methods=["POST"])
 def api_start_recording():
     data = request.json
-
-    channel_id = data.get("channel_id")
-    number = data.get("number")   # new param for channel number
+    channel_id_or_num = data.get("channel_id") or data.get("number")
     title = data.get("title", "")
     description = data.get("description", "")
-    start_time_str = data.get("start_time")  # HH:MM:SS
+    start = data.get("start")
+    stop = data.get("stop")
 
-    # Resolve channel_id by number if number is given
-    if number:
-        channel_id = number_to_channel_id.get(number)
-        if not channel_id:
-            return jsonify({"error": "Invalid channel number"}), 400
+    channel = get_channel_by_id_or_number(channel_id_or_num)
+    if not channel:
+        return jsonify({"error": "Invalid channel_id or number"}), 400
 
-    if not channel_id or channel_id not in channels:
-        return jsonify({"error": "Invalid channel_id"}), 400
-
-    stream_url = channels[channel_id]["stream"]
+    stream_url = channel.get("stream")
     if not stream_url:
         return jsonify({"error": "Stream URL not found for channel"}), 400
 
-    # Parse start time from HH:MM:SS (optional)
-    if start_time_str:
-        try:
-            h, m, s = map(int, start_time_str.split(":"))
-            now = datetime.datetime.now(UK_TZ)
-            start_dt = now.replace(hour=h, minute=m, second=s, microsecond=0)
-            # If time already passed today, assume next day
-            if start_dt < now:
-                start_dt += datetime.timedelta(days=1)
-            start_iso = start_dt.isoformat()
-        except Exception:
-            return jsonify({"error": "Invalid start_time format, use HH:MM:SS"}), 400
-    else:
-        start_iso = datetime.datetime.now(UK_TZ).isoformat()
-
-    recording_id = f"{channel_id}_{int(datetime.datetime.now().timestamp())}"
+    recording_id = f"{channel['id']}_{int(datetime.datetime.now().timestamp())}"
 
     metadata = {
-        "channel": channel_id,
+        "channel": channel["id"],
         "title": title,
         "description": description,
-        "start": start_iso,
-        "stop": data.get("stop")
+        "start": start or datetime.datetime.now().isoformat(),
+        "stop": stop,
     }
 
     filepath = start_recording(recording_id, stream_url, metadata)
@@ -233,26 +208,72 @@ def api_list_recordings():
         })
     return jsonify(recs)
 
-@app.route("/api/recordings/saved", methods=["GET"])
-def api_list_saved_recordings():
-    recordings_list = []
-    for filename in os.listdir(RECORDINGS_DIR):
-        if filename.endswith(".mp4"):
-            filepath = os.path.join(RECORDINGS_DIR, filename)
-            meta_filepath = filepath + ".json"
-            metadata = {}
-            if os.path.exists(meta_filepath):
-                try:
-                    with open(meta_filepath, "r") as mf:
-                        metadata = json.load(mf)
-                except Exception as e:
-                    print(f"Failed to load metadata for {filename}: {e}")
-            recordings_list.append({
-                "filename": filename,
-                "filepath": filepath,
-                "metadata": metadata
+@app.route("/api/recordings/schedule", methods=["POST"])
+def api_schedule_recording():
+    data = request.json
+    channel_id_or_num = data.get("channel_id") or data.get("number")
+    start_str = data.get("start")
+    stop_str = data.get("stop")
+    title = data.get("title", "")
+    description = data.get("description", "")
+
+    if not channel_id_or_num:
+        return jsonify({"error": "Missing channel_id or number"}), 400
+    if not start_str or not stop_str:
+        return jsonify({"error": "Missing start or stop time"}), 400
+
+    channel = get_channel_by_id_or_number(channel_id_or_num)
+    if not channel:
+        return jsonify({"error": "Invalid channel_id or number"}), 400
+
+    try:
+        start = datetime.datetime.fromisoformat(start_str)
+        if start.tzinfo is None:
+            start = UK_TZ.localize(start)
+        stop = datetime.datetime.fromisoformat(stop_str)
+        if stop.tzinfo is None:
+            stop = UK_TZ.localize(stop)
+    except Exception:
+        return jsonify({"error": "Invalid start or stop time format, must be ISO"}), 400
+
+    if stop <= start:
+        return jsonify({"error": "Stop time must be after start time"}), 400
+
+    recording_id = f"{channel['id']}_{int(start.timestamp())}"
+
+    metadata = {
+        "channel": channel["id"],
+        "title": title,
+        "description": description,
+        "start": start.isoformat(),
+        "stop": stop.isoformat(),
+        "stream_url": channel.get("stream")
+    }
+
+    with scheduler_lock:
+        if recording_id in user_scheduled_recordings:
+            return jsonify({"error": "Recording already scheduled"}), 400
+        user_scheduled_recordings[recording_id] = {
+            "start": start,
+            "stop": stop,
+            "metadata": metadata
+        }
+
+    print(f"User scheduled recording {recording_id} from {start} to {stop}")
+    return jsonify({"recording_id": recording_id, "metadata": metadata})
+
+@app.route("/api/recordings/scheduled", methods=["GET"])
+def api_list_scheduled_recordings():
+    with scheduler_lock:
+        recs = []
+        for rid, info in user_scheduled_recordings.items():
+            recs.append({
+                "recording_id": rid,
+                "start": info["start"].isoformat(),
+                "stop": info["stop"].isoformat(),
+                "metadata": info["metadata"]
             })
-    return jsonify(recordings_list)
+    return jsonify(recs)
 
 if __name__ == "__main__":
     scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True)
