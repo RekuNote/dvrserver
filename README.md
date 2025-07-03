@@ -133,7 +133,7 @@ Copy the `channels.json` file from your `tvserver/` directory to your project di
 * Start the server with:
 
   ```bash
-  python your_script.py
+  python main.py
   ```
 * Use a tool like **Postman**, **Insomnia**, or just `curl` for testing.
 * Keep your stream URLs short and working to avoid `ffmpeg` hanging.
