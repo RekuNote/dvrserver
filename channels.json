@@ -1,0 +1,75 @@
+[
+  {
+    "id": "BBCOneLondonHD.uk",
+    "name": "BBC One HD",
+    "number": "101",
+    "stream": "https://vs-cmaf-pushb-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:bbc_one_east/pc_hd_abr_v2.mpd"
+  },
+  {
+    "id": "BBCTwoHD.uk",
+    "name": "BBC Two HD",
+    "number": "102",
+    "stream": "https://vs-cmaf-push-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:bbc_two_hd/iptv_hd_abr_v1.mpd"
+  },
+  {
+    "id": "BBCThreeHD.uk",
+    "name": "BBC Three HD",
+    "number": "107",
+    "stream": "https://vs-cmaf-pushb-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:bbc_three_hd/iptv_hd_abr_v1.mpd"
+  },
+  {
+    "id": "BBCFourHD.uk",
+    "name": "BBC Four HD",
+    "number": "108",
+    "stream": "https://vs-cmaf-pushb-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:bbc_four_hd/iptv_hd_abr_v1.mpd"
+  },
+  {
+    "id": "QVCUK.uk",
+    "name": "QVCUK",
+    "number": "740",
+    "stream": "https://qvcuk-live.akamaized.net/hls/live/2097112/qvc/3/3.m3u8"
+  },
+  {
+    "id": "CBBC.uk",
+    "name": "CBBC",
+    "number": "701",
+    "stream": "https://vs-hls-pushb-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:cbbc_hd/t=3840/v=pv14/b=5070016/main.m3u8"
+  },
+  {
+    "id": "CBeebies.uk",
+    "name": "CBeebies",
+    "number": "702",
+    "stream": "https://vs-hls-pushb-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:cbeebies_hd/t=3840/v=pv14/b=5070016/main.m3u8"
+  },
+  {
+    "id": "BBCParliament.uk",
+    "name": "BBC Parliament",
+    "number": "605",
+    "stream": "https://vs-hls-pushb-uk-live.akamaized.net/x=4/i=urn:bbc:pips:service:bbc_parliament/pc_hd_abr_v2.m3u8"
+  },
+  {
+    "id": "Now70s.uk",
+    "name": "Now 70s",
+    "number": "885",
+    "stream": "https://lightning-now70s-samsungnz.amagi.tv/playlist.m3u8"
+  },
+  {
+    "id": "Now80s.uk",
+    "name": "Now 80s",
+    "number": "886",
+    "stream": "https://lightning-now80s-samsungnz.amagi.tv/playlist.m3u8"
+  },
+  {
+    "id": "Now90s.uk",
+    "name": "Now 90s",
+    "number": "887",
+    "stream": "https://lightning-now90s-samsungnz.amagi.tv/playlist.m3u8"
+  },
+  {
+    "id": "TJC.uk",
+    "name": "TJC",
+    "number": "757",
+    "stream": "https://cdn-shop-lc-01.akamaized.net/Content/HLS_HLS/Live/channel(TJCOTT)/index.m3u8"
+  }
+]
+
