@@ -1,272 +1,292 @@
 # DVR Server API Documentation
 
+This project is a **DVR Recording Server** that allows scheduling, managing, and listing TV recordings programmatically via a RESTful API. It uses `ffmpeg` to capture live streams and save recordings locally.
+
+
+
+## Table of Contents
+
+* [Overview](#overview)
+* [Prerequisites](#prerequisites)
+* [Setup](#setup)
+* [API Endpoints](#api-endpoints)
+
+  * [Start Recording](#start-recording)
+  * [Cancel Recording](#cancel-recording)
+  * [List Active Recordings](#list-active-recordings)
+  * [List All Recordings](#list-all-recordings)
+  * [Get MyShows List](#get-myshows-list)
+  * [Health Check](#health-check)
+* [Data Files](#data-files)
+* [Recording Workflow](#recording-workflow)
+* [Notes](#notes)
+* [License](#license)
+
+
+
 ## Overview
 
-This API allows you to manage live and scheduled TV recordings using channel info and EPG schedules.
+The DVR Server provides an HTTP API to schedule live stream recordings by channel and program time, cancel ongoing recordings, and list current and past recordings. It relies on:
 
-You can:
-
-* **Start/stop immediate recordings**
-* **Schedule recordings for the future**
-* **List active recordings**
-* **List scheduled recordings**
-
-# Base URL
-
-```
-http://<server-host>:8080/
-```
-
-Replace `<server-host>` with your server IP or hostname.
-
-# Endpoints
-
-## 1. Start a recording immediately
-
-```
-POST /api/recordings/start
-```
-
-Start recording a given channel immediately.
-
-### Request JSON body
-
-| Field         | Type   | Required | Description                                                                    |
-| ------------- | ------ | -------- | ------------------------------------------------------------------------------ |
-| `channel_id`  | string | Cond.    | The channel ID (e.g. `"BBCOneLondonHD.uk"`). Required if `number` missing.     |
-| `number`      | string | Cond.    | Channel number as string (e.g. `"101"`). Required if `channel_id` missing.     |
-| `title`       | string | No       | Title for the recording metadata (e.g. `"News at 6"`).                         |
-| `description` | string | No       | Description for the recording metadata.                                        |
-| `start`       | string | No       | ISO 8601 datetime string of recording start time (ignored, uses current time). |
-| `stop`        | string | No       | ISO 8601 datetime string of stop time (ignored for immediate recording).       |
-
-### Notes
-
-* `channel_id` or `number` **must** be provided.
-* The recording starts immediately on the channel’s stream URL.
-* Returns a unique `recording_id` to identify this recording.
-
-### Response JSON
-
-```json
-{
-  "recording_id": "BBCOneLondonHD.uk_1695000000",
-  "filepath": "recordings/2025-07-03T13:15:00+01:00_BBCOneLondonHD.uk_News at 6.mp4"
-}
-```
-
-### Example
-
-```bash
-curl -X POST http://localhost:8080/api/recordings/start \
-  -H "Content-Type: application/json" \
-  -d '{"channel_id": "BBCOneLondonHD.uk", "title": "News at 6"}'
-```
-
-## 2. Stop a recording
-
-```
-POST /api/recordings/stop
-```
-
-Stop a currently running recording by its `recording_id`.
-
-### Request JSON body
-
-| Field          | Type   | Required | Description                  |
-| -------------- | ------ | -------- | ---------------------------- |
-| `recording_id` | string | Yes      | ID of the recording to stop. |
-
-### Response JSON
-
-Success:
-
-```json
-{
-  "status": "stopped",
-  "recording_id": "BBCOneLondonHD.uk_1695000000"
-}
-```
-
-Failure (recording not found):
-
-```json
-{
-  "error": "Recording not found"
-}
-```
-
-### Example
-
-```bash
-curl -X POST http://localhost:8080/api/recordings/stop \
-  -H "Content-Type: application/json" \
-  -d '{"recording_id": "BBCOneLondonHD.uk_1695000000"}'
-```
+* A **channels JSON file** describing channel metadata and streams.
+* An **EPG API** (Electronic Program Guide) providing program schedules per channel.
+* `ffmpeg` to record streams.
+* Thread-safe handling of active recordings.
 
 
-## 3. List currently active recordings
 
-```
-GET /api/recordings
-```
+## Prerequisites
 
-Returns all recordings currently running.
+* Python 3.7+
+* `ffmpeg` installed and available in your system PATH
+* Python dependencies (install via `pip install flask requests python-dateutil`)
+* Running EPG server at `http://localhost:7070/api/epg` providing program guide JSON
 
-### Response JSON
 
-Array of active recordings:
 
-```json
-[
+## Setup
+
+1. Clone or download this repository.
+
+2. Place your `channels.json` file with channel info in the project root.
+
+3. Ensure your EPG server is running and accessible.
+
+4. Run the server:
+
+   ```bash
+   python dvr_server.py
+   ```
+
+5. The API listens on port `8080` by default.
+
+
+
+## API Endpoints
+
+### Start Recording
+
+**POST** `/api/recordings/start`
+
+Schedule a recording for a channel and optionally at a specific start time.
+
+* **Request Body Example:**
+
+  ```json
   {
-    "recording_id": "BBCOneLondonHD.uk_1695000000",
-    "filepath": "recordings/2025-07-03T13:15:00+01:00_BBCOneLondonHD.uk_News at 6.mp4",
-    "metadata": {
-      "channel": "BBCOneLondonHD.uk",
-      "title": "News at 6",
-      "description": "Evening news",
-      "start": "2025-07-03T13:15:00+01:00",
-      "stop": null
-    }
+    "channel": "channel_id_or_number",
+    "start_time": "2025-07-04T21:00:00+02:00"
   }
-]
-```
+  ```
 
-### Example
+  * `channel` (string): Required. Channel ID or channel number.
+  * `start_time` (string, optional): ISO8601 formatted start time. If omitted, current live program is recorded.
 
-```bash
-curl http://localhost:8080/api/recordings
-```
+* **Curl example:**
 
-## 4. Schedule a recording for the future
+  ```bash
+  curl -X POST http://localhost:8080/api/recordings/start \
+    -H "Content-Type: application/json" \
+    -d '{"channel": "101", "start_time": "2025-07-04T21:00:00+02:00"}'
+  ```
 
-```
-POST /api/recordings/schedule
-```
+* **Response Example:**
 
-Schedule a recording to start and stop at specified future times.
-
-### Request JSON body
-
-| Field         | Type   | Required | Description                                                            |
-| ------------- | ------ | -------- | ---------------------------------------------------------------------- |
-| `channel_id`  | string | Cond.    | Channel ID (e.g. `"BBCOneLondonHD.uk"`). Required if `number` missing. |
-| `number`      | string | Cond.    | Channel number (e.g. `"101"`). Required if `channel_id` missing.       |
-| `start`       | string | Yes      | ISO 8601 datetime with timezone. When to start recording.              |
-| `stop`        | string | Yes      | ISO 8601 datetime with timezone. When to stop recording.               |
-| `title`       | string | No       | Title for the recording metadata.                                      |
-| `description` | string | No       | Description for the recording metadata.                                |
-
-### Notes
-
-* The scheduler will start recording automatically when the start time approaches.
-* Stop time must be after start time.
-* Channel stream URL is resolved at scheduling time.
-* Returns a unique `recording_id`.
-
-### Response JSON
-
-```json
-{
-  "recording_id": "BBCOneLondonHD.uk_1751544900",
-  "metadata": {
-    "channel": "BBCOneLondonHD.uk",
-    "title": "Scheduled Show",
-    "description": "My scheduled recording",
-    "start": "2025-07-03T15:00:00+01:00",
-    "stop": "2025-07-03T15:30:00+01:00",
-    "stream_url": "https://..."
-  }
-}
-```
-
-### Example
-
-```bash
-curl -X POST http://localhost:8080/api/recordings/schedule \
-  -H "Content-Type: application/json" \
-  -d '{
-    "channel_id": "BBCOneLondonHD.uk",
-    "start": "2025-07-03T15:00:00+01:00",
-    "stop": "2025-07-03T15:30:00+01:00",
-    "title": "Scheduled Show",
-    "description": "My scheduled recording"
-  }'
-```
-
-## 5. List all user scheduled (pending) recordings
-
-```
-GET /api/recordings/scheduled
-```
-
-Returns all future recordings the user has scheduled but not yet started or completed.
-
-### Response JSON
-
-Array of scheduled recordings:
-
-```json
-[
+  ```json
   {
-    "recording_id": "BBCOneLondonHD.uk_1751544900",
-    "start": "2025-07-03T15:00:00+01:00",
-    "stop": "2025-07-03T15:30:00+01:00",
-    "metadata": {
-      "channel": "BBCOneLondonHD.uk",
-      "title": "Scheduled Show",
-      "description": "My scheduled recording",
-      "start": "2025-07-03T15:00:00+01:00",
-      "stop": "2025-07-03T15:30:00+01:00",
-      "stream_url": "https://..."
-    }
+    "message": "Recording scheduled",
+    "recording_id": "101_20250704T210000",
+    "channel": "News Channel",
+    "program_title": "Evening News",
+    "start_time": "2025-07-04T21:00:00+02:00",
+    "stop_time": "2025-07-04T21:30:00+02:00",
+    "file_path": "recordings/20250704T210000_101_Evening_News.mp4"
   }
-]
-```
+  ```
 
-### Example
+* **Errors:**
 
-```bash
-curl http://localhost:8080/api/recordings/scheduled
-```
+  * 400 Bad Request if missing parameters or invalid time format.
+  * 404 Not Found if channel not found.
+  * 400 Bad Request if no EPG data available.
 
-# Additional Information
 
-### Timezones
 
-* All datetime strings must be ISO 8601 formatted, including timezone offset (e.g. `"2025-07-03T15:00:00+01:00"`).
-* The server uses Europe/London timezone internally and will localize naive timestamps accordingly.
+### Cancel Recording
 
-### Filenames
+**POST** `/api/recordings/cancel`
 
-* Recorded files are saved to the `recordings/` directory with sanitized filenames including start time, channel ID, and title.
+Cancel an ongoing recording.
 
-### Errors
+* **Request Body Example:**
 
-* If required parameters are missing or invalid, the API will respond with status 400 and a JSON error message.
-* If trying to schedule a recording already scheduled for the exact same start time, the API will return error 400.
+  ```json
+  {
+    "recording_id": "101_20250704T210000"
+  }
+  ```
 
-### Concurrency and Threading
+* **Curl example:**
 
-* The scheduler runs in a separate background thread, starting and stopping scheduled recordings automatically.
-* Manual start/stop endpoints remain fully functional.
+  ```bash
+  curl -X POST http://localhost:8080/api/recordings/cancel \
+    -H "Content-Type: application/json" \
+    -d '{"recording_id": "101_20250704T210000"}'
+  ```
 
-# Example Workflow
+* **Response Example:**
 
-1. **Schedule a future recording**
-   POST to `/api/recordings/schedule` with channel and start/stop times.
+  ```json
+  {
+    "message": "Recording 101_20250704T210000 canceled"
+  }
+  ```
 
-2. **List scheduled recordings**
-   GET `/api/recordings/scheduled`
+* **Errors:**
 
-3. **Wait for the scheduler to start recording at the right time**
-   The recording starts automatically in the background.
+  * 400 Bad Request if missing `recording_id`.
+  * 404 Not Found if recording not found.
 
-4. **List active recordings**
-   GET `/api/recordings`
 
-5. **Stop a recording manually (if desired)**
-   POST to `/api/recordings/stop` with the recording ID.
 
-If you want, I can also generate a **Postman collection** or a **Python client example** for easy API interaction. Just say the word!
+### List Active Recordings
+
+**GET** `/api/recordings`
+
+Returns a list of recordings currently in progress or scheduled.
+
+* **Curl example:**
+
+  ```bash
+  curl http://localhost:8080/api/recordings
+  ```
+
+* **Response Example:**
+
+  ```json
+  [
+    {
+      "recording_id": "101_20250704T210000",
+      "channel_id": "101",
+      "program_title": "Evening News",
+      "start_time": "2025-07-04T21:00:00+02:00",
+      "stop_time": "2025-07-04T21:30:00+02:00",
+      "file_path": "recordings/20250704T210000_101_Evening_News.mp4",
+      "canceled": false
+    }
+  ]
+  ```
+
+
+
+### List All Recordings
+
+**GET** `/api/recordings/all`
+
+Returns all saved recording files from the `recordings/` directory, including past recordings.
+
+* **Curl example:**
+
+  ```bash
+  curl http://localhost:8080/api/recordings/all
+  ```
+
+* **Response Example:**
+
+  ```json
+  [
+    {
+      "file_name": "20250704T210000_101_Evening_News.mp4",
+      "channel_id": "101",
+      "program_title": "Evening News",
+      "start_time": "2025-07-04T21:00:00",
+      "file_path": "recordings/20250704T210000_101_Evening_News.mp4"
+    }
+  ]
+  ```
+
+
+
+### Get MyShows List
+
+**GET** `/api/myshows`
+
+Returns the list of saved shows (recordings) tracked in `myshows.json`.
+
+* **Curl example:**
+
+  ```bash
+  curl http://localhost:8080/api/myshows
+  ```
+
+* **Response Example:**
+
+  ```json
+  [
+    {
+      "recording_id": "101_20250704T210000",
+      "channel_id": "101",
+      "program_title": "Evening News",
+      "start_time": "2025-07-04T21:00:00+02:00",
+      "stop_time": "2025-07-04T21:30:00+02:00",
+      "file_path": "recordings/20250704T210000_101_Evening_News.mp4"
+    }
+  ]
+  ```
+
+
+
+### Health Check
+
+**GET** `/`
+
+Basic server status check.
+
+* **Curl example:**
+
+  ```bash
+  curl http://localhost:8080/
+  ```
+
+* **Response Example:**
+
+  ```json
+  {
+    "message": "DVR Recording Server is running."
+  }
+  ```
+
+
+
+## Data Files
+
+* `channels.json`: List of channels with `id`, `number`, `name`, and `stream` URL.
+* `myshows.json`: JSON array tracking saved recordings metadata.
+* `recordings/`: Directory where `.mp4` recordings are saved.
+
+
+
+## Recording Workflow
+
+1. **Schedule:** User requests to start recording a channel and optionally specify a start time.
+2. **EPG Lookup:** Server fetches program info from EPG API to find the program details.
+3. **Recording:** A new thread starts, waiting until the start time, then runs `ffmpeg` to record the stream.
+4. **Cancel:** User can cancel an active recording, sending `SIGINT` to the `ffmpeg` process.
+5. **Completion:** Upon completion, recording info is saved to `myshows.json`.
+6. **Listing:** Users can query active recordings or all saved recordings.
+
+
+
+## Notes
+
+* The server uses threading to allow multiple simultaneous recordings.
+* Filenames are sanitized and formatted as `<timestamp>_<channel_id>_<program_title>.mp4`.
+* The server expects the EPG API to be available at `http://localhost:7070/api/epg`.
+* The recordings directory is created automatically if missing.
+* Timezones are handled using ISO8601 and local timezone fallback.
+
+
+
+## License
+
+This project is provided as-is under the MIT License.
