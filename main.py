@@ -9,8 +9,10 @@ from flask import Flask, request, jsonify, abort
 import requests
 from dateutil import parser
 from dateutil.tz import tzlocal
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 PORT = 8080
 
 # Paths
