@@ -10,7 +10,6 @@ This project is a **DVR Recording Server** that allows scheduling, managing, and
 * [Prerequisites](#prerequisites)
 * [Setup](#setup)
 * [API Endpoints](#api-endpoints)
-
   * [Start Recording](#start-recording)
   * [Cancel Recording](#cancel-recording)
   * [List Active Recordings](#list-active-recordings)
@@ -258,9 +257,9 @@ Basic server status check and current disk usage by recordings as a percentage o
   ```
 
 * `full` (integer): Percentage (without decimals) of total disk storage currently used by all saved recordings.
+  If recordings exist but the calculated percentage is less than 1%, it will return `1` to indicate minimal usage.
 
 * The root endpoint `/` now returns a `"full"` field indicating the percentage of total disk storage used by all recordings, helping monitor storage usage easily.
-
 
 ## Data Files
 
