@@ -240,7 +240,7 @@ Returns the list of saved shows (recordings) tracked in `myshows.json`.
 
 **GET** `/`
 
-Basic server status check.
+Basic server status check and current disk usage by recordings as a percentage of total device storage.
 
 * **Curl example:**
 
@@ -252,10 +252,14 @@ Basic server status check.
 
   ```json
   {
-    "message": "DVR Recording Server is running."
+    "message": "DVR Recording Server is running.",
+    "full": 3
   }
   ```
 
+* `full` (integer): Percentage (without decimals) of total disk storage currently used by all saved recordings.
+
+* The root endpoint `/` now returns a `"full"` field indicating the percentage of total disk storage used by all recordings, helping monitor storage usage easily.
 
 
 ## Data Files
