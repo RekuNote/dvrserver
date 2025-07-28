@@ -10,6 +10,7 @@ import requests
 from dateutil import parser
 from dateutil.tz import tzlocal
 from flask_cors import CORS
+import shutil
 
 app = Flask(__name__)
 CORS(app)
@@ -365,7 +366,33 @@ def api_list_all_recordings():
 
 @app.route('/')
 def index():
-    return jsonify({"message": "DVR Recording Server is running."})
+    # Get disk usage stats
+    total, used, free = shutil.disk_usage(RECORDINGS_DIR)
+
+    # Calculate size of all myshows recordings
+    total_recordings_size = 0
+    recording_files_count = 0
+    for root, dirs, files in os.walk(RECORDINGS_DIR):
+        for f in files:
+            try:
+                fp = os.path.join(root, f)
+                if os.path.isfile(fp):
+                    total_recordings_size += os.path.getsize(fp)
+                    recording_files_count += 1
+            except Exception as e:
+                print(f"Error reading size of {fp}: {e}")
+
+    # Calculate percentage of disk used by recordings
+    full_percent = int((total_recordings_size / total) * 100) if total > 0 else 0
+
+    # If percentage is 0 but there is at least one recording, set it to 1
+    if full_percent == 0 and recording_files_count > 0:
+        full_percent = 1
+
+    return jsonify({
+        "message": "DVR Recording Server is running.",
+        "full": full_percent  # Integer percentage
+    })
 
 @app.route('/api/myshows', methods=['GET'])
 def api_myshows():
